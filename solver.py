@@ -1,65 +1,114 @@
 import sys
 import re
-
-queries = list()
-kb = list()
-nq = 0
-ns = 0
+from collections import defaultdict
 
 
-def get_input():
-    fin = "input.txt"
-    output_file = "output.txt"
-    global queries
-    global kb
-    global nq
-    global ns
+class KnowledgeBase:
+    # Rules stores all rules as strings
+    rules = []
 
-    try:
-        input_file = open(fin, 'r')
-        lines = input_file.readlines()
+    # Stores rules with a id
+    ruleStore = defaultdict(list)
+
+    ruleCount = 0
+
+    def __init__(self, rules):
+        self.rules = rules
+        self.ruleCount = 0
+        for i in range(len(rules)):
+            self.rules[i] = self.convert_to_CNF(self.rules[i])
+
+    def convert_to_CNF(self, rule):
+        tokens = rule.split(' ')
+
+        if len(tokens) > 2 and "=>" in tokens:
+            return self.convert_implication_to_cnf(tokens)
+        else:
+            return rule
+
+    def convert_implication_to_cnf(self, tokens):
+        cnfRule = []
+        implicationReached = False
+        for i in tokens:
+            if not implicationReached and (i != "=>" and i != "&"):
+                cnfRule.append("~" + i)
+            elif i == "=>":
+                cnfRule.append("|")
+                implicationReached = True
+            elif i == "&":
+                cnfRule.append("|")
+            else:
+                cnfRule.append(i)
+
+        return " ".join(cnfRule)
+
+
+class ReaderWriter:
+
+    def __init__(self, inputFile, outputFile):
+        self.queries = []
+        self.kb = []
+        self.nq = None
+        self.ns = None
+        self.inputFile = inputFile
+        self.outputFile = outputFile
+        self.sentences = []
+        self.cnfConvertor = None
+        self.readFileObject = None
+        self.writeFileObject = None
+        self.prologue()
+
+    def prologue(self):
+        self.writeFileObject = open(self.outputFile, 'w')
+        try:
+            self.readFileObject = open(self.inputFile, 'r')
+        except IOError:
+            self.writeFileObject.write("File not found: {}".format(self.inputFile))
+            self.writeFileObject.close()
+            sys.exit()
+
+    def epilogue(self):
+        self.readFileObject.close()
+        self.writeFileObject.close()
+
+    def read(self):
+        lines = self.readFileObject.readlines()
         for index, line in enumerate(lines):
             if index == 0:
-                nq = int(lines[index].strip("\n"))
-                for i in range(1, nq + 1):
-                    queries.append(lines[i].strip("\n"))
-                ns = int(lines[nq + 1].strip("\n"))
-                for i in range(nq + 2, nq + ns + 2):
-                    kb.append(lines[i].strip("\n"))
+                self.nq = int(lines[index].strip("\n"))
+                for i in range(1, self.nq + 1):
+                    self.queries.append(lines[i].strip("\n"))
+                self.ns = int(lines[self.nq + 1].strip("\n"))
+                for i in range(self.nq + 2, self.nq + self.ns + 2):
+                    self.kb.append(lines[i].strip("\n"))
                 break
-        input_file.close()
-        return queries, kb
 
-    except IOError:
-        fo = open(output_file, 'w')
-        fo.write("File not found: {}".format(fin))
-        fo.close()
-        sys.exit()
+        # Convert to CNF
+        self.cnfConvertor = KnowledgeBase(self.kb)
+        self.sentences = self.cnfConvertor.rules
+        return self.queries, self.sentences
 
+    def write(self, flag):
+        if flag:
+            self.writeFileObject.write("TRUE" + "\n")
+        else:
+            self.writeFileObject.write("FALSE" + "\n")
 
-def parseKB(kb):
-    negativeKB = dict()
-    positiveKB = dict()
+    def splitKB(self):
+        negatedKB = defaultdict(list)
+        positiveKB = defaultdict(list)
 
-    for item in kb:
-        data = item.split('|')
-        for i in data:
-            i = i.replace(' ', '')
-            if i[0] == '~':
-                b = i[1:]
-                b = b.partition("(")[0]
-                try:
-                    negativeKB[b].append(item)
-                except KeyError:
-                    negativeKB[b] = [item]
-            else:
-                i = i.partition("(")[0]
-                try:
-                    positiveKB[i].append(item)
-                except KeyError:
-                    positiveKB[i] = [item]
+        for item in self.sentences:
+            data = item.split('|')
+            for i in [i.replace(' ', '') for i in data]:
+                if isNegative(i):
+                    b = i[1:].split("(")[0]
+                    negatedKB[b].append(item)
+                else:
+                    b = i.split("(")[0]
+                    positiveKB[b].append(item)
 
-    return negativeKB, positiveKB
+        return negatedKB, positiveKB
 
 
 def extract_constants(query):
@@ -67,16 +116,20 @@ def extract_constants(query):
     return variable
 
 
+def isVariable(var):
+    return var[0].islower()
+
+
 # Checks if a variable exists
-def checkSentence(kb):
-    if "|" in kb:
+def checkSentence(sentence):
+    if " | " in sentence:
         return False
-    constants = re.search(r'\((.*?)\)', kb).group(1)
+
+    constants = sentence.split('(')[1][:-1]
     constantsList = constants.split(",")
+
     for val in constantsList:
-        if val[0].isupper():
-            continue
-        else:
+        if not isVariable(val):
             return False
     return True
 
@@ -86,7 +139,7 @@ def isNegative(query):
 
 
 def getRemoveQueries(query, query_temp, sentence):
-    if query[0] != '~':
+    if not isNegative(query):
         return sentence[1:], "~" + query_temp
     else:
         return "~" + sentence, query_temp[1:]
@@ -97,7 +150,7 @@ def unification(query, left_over, positiveKB, negativeKB, can_simplyfy):
 
     value = None
 
-    if query[0] != '~':
+    if not isNegative(query):
         try:
             value = negativeKB[predicate]
         except KeyError:
@@ -156,6 +209,21 @@ def unification(query, left_over, positiveKB, negativeKB, can_simplyfy):
 
     return False
 
+
+def collapseORs(sentence):
+    if " |  | " in sentence:
+        news2 = sentence.replace(" |  | ", " | ")
+        return news2
+    elif sentence[:3] == " | ":
+        news2 = sentence[3:]
+        return news2
+    elif sentence[-3:] == " | ":
+        news2 = sentence[:-3]
+        return news2
+    else:
+        return sentence
+
+
 def remove(k, query):
     substitutionPass, updatedQuery, updatedSentence = querySubstitution(k, query)
 
@@ -169,17 +237,7 @@ def remove(k, query):
             news1 = updatedSentence.replace(deletionString, "")
 
         # Collapse OR's
-        if " |  | " in news1:
-            news2 = news1.replace(" |  | ", " | ")
-            return 1, news2
-        elif news1[:3] == " | ":
-            news2 = news1[3:]
-            return 1, news2
-        elif news1[-3:] == " | ":
-            news2 = news1[:-3]
-            return 1, news2
-        else:
-            return 1, news1
+        return 1, collapseORs(news1)
     else:
         return 0, updatedSentence
 
@@ -204,21 +262,21 @@ def querySubstitution(sentence, query):
             sentenceArgsList = sentenceArgs.split(",")
 
             for j in sentenceArgsList:
-                if j[0].isupper() and queryArgsList[count][0].islower():
+                if not isVariable(j) and isVariable(queryArgsList[count]):
                     query = replaceVariableWithConstant(queryArgsList[count], query, j)
                     flag = True
                     count += 1
-                elif j[0].islower() and queryArgsList[count][0].isupper():
+                elif isVariable(j) and not isVariable(queryArgsList[count]):
                     sentence = replaceVariableWithConstant(j, sentence, queryArgsList[count])
                     flag = True
                     count += 1
-                elif j[0].isupper() and queryArgsList[count][0].isupper():
+                elif not isVariable(j) and not isVariable(queryArgsList[count]):
                     flag = (j == queryArgsList[count])
                     if flag:
                         count += 1
                     else:
                         break
-                elif j[0].islower() and queryArgsList[count][0].islower():
+                elif isVariable(j) and isVariable(queryArgsList[count]):
                     if not (j == queryArgsList[count]):
                         sentence = replaceVariableWithConstant(j, sentence, queryArgsList[count])
                         flag = True
@@ -238,10 +296,9 @@ def replaceVariableWithConstant(word, to_replace, with_replace):
 
 
 def main():
-    output_file = "output.txt"
-    fo = open(output_file, 'w')
-    query_list, sentences = get_input()
-    negativeKB, positiveKB = parseKB(sentences)
+    r = ReaderWriter("input.txt", "output.txt")
+    query_list, sentences = r.read()
+    negativeKB, positiveKB = r.splitKB()
 
     can_simplyfy = []
     for a in sentences:
@@ -249,20 +306,14 @@ def main():
             can_simplyfy.append(a)
 
     for query in query_list:
-        if query[0] == '~':
+        new_query = None
+        if isNegative(query):
             new_query = query[1:]
-            if unification(new_query, new_query, positiveKB, negativeKB, can_simplyfy):
-                fo.write("TRUE" + "\n")
-            else:
-                fo.write("FALSE" + "\n")
-
         else:
             new_query = "~" + query
-            if unification(new_query, new_query, positiveKB, negativeKB, can_simplyfy):
-                fo.write("TRUE" + "\n")
-            else:
-                fo.write("FALSE" + "\n")
-    fo.close()
+        r.write(unification(new_query, new_query, positiveKB, negativeKB, can_simplyfy))
+
+    r.epilogue()
 
 
 if __name__ == '__main__':
