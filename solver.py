@@ -1,5 +1,5 @@
 import sys
-import re
+import inspect
 from collections import defaultdict
 
 
@@ -26,12 +26,18 @@ class KnowledgeBase:
         else:
             return rule
 
+    def isNegative(self, query):
+        return query[0] == '~'
+
     def convert_implication_to_cnf(self, tokens):
         cnfRule = []
         implicationReached = False
         for i in tokens:
             if not implicationReached and (i != "=>" and i != "&"):
-                cnfRule.append("~" + i)
+                if self.isNegative(i):
+                    cnfRule.append(i[1:])
+                else:
+                    cnfRule.append('~' + i)
             elif i == "=>":
                 cnfRule.append("|")
                 implicationReached = True
@@ -48,8 +54,6 @@ class ReaderWriter:
     def __init__(self, inputFile, outputFile):
         self.queries = []
         self.kb = []
-        self.nq = None
-        self.ns = None
         self.inputFile = inputFile
         self.outputFile = outputFile
         self.sentences = []
@@ -75,12 +79,12 @@ class ReaderWriter:
         lines = self.readFileObject.readlines()
         for index, line in enumerate(lines):
             if index == 0:
-                self.nq = int(lines[index].strip("\n"))
-                for i in range(1, self.nq + 1):
-                    self.queries.append(lines[i].strip("\n"))
-                self.ns = int(lines[self.nq + 1].strip("\n"))
-                for i in range(self.nq + 2, self.nq + self.ns + 2):
-                    self.kb.append(lines[i].strip("\n"))
+                nq = int(lines[index].strip())
+                for i in range(1, nq + 1):
+                    self.queries.append(lines[i].strip())
+                ns = int(lines[nq + 1].strip())
+                for i in range(nq + 2, nq + ns + 2):
+                    self.kb.append(lines[i].strip())
                 break
 
         # Convert to CNF
@@ -94,227 +98,218 @@ class ReaderWriter:
         else:
             self.writeFileObject.write("FALSE" + "\n")
 
-    def splitKB(self):
-        negatedKB = defaultdict(list)
-        positiveKB = defaultdict(list)
+    def isNegative(self, query):
+        return query[0] == '~'
 
+
+class Solver:
+
+    def __init__(self, readerWriter, sentences, queries):
+        self.readerWriter = readerWriter
+        self.singleTermSentences = []
+        self.sentences = sentences
+        self.queries = queries
+        self.positiveKB = defaultdict(list)
+        self.negatedKB = defaultdict(list)
+
+        for i in sentences:
+            if self.checkSentence(i):
+                self.singleTermSentences.append(i)
+
+    def splitKB(self):
         for item in self.sentences:
             data = item.split('|')
             for i in [i.replace(' ', '') for i in data]:
-                if isNegative(i):
+                if self.isNegative(i):
                     b = i[1:].split("(")[0]
-                    negatedKB[b].append(item)
+                    self.negatedKB[b].append(item)
                 else:
                     b = i.split("(")[0]
-                    positiveKB[b].append(item)
+                    self.positiveKB[b].append(item)
 
-        return negatedKB, positiveKB
+    def solve(self):
+        self.splitKB()
 
+        for query in self.queries:
+            if self.isNegative(query):
+                newQuery = query[1:]
+            else:
+                newQuery = "~" + query
+            self.readerWriter.write(self.unification(newQuery, newQuery))
 
-def extract_constants(query):
-    variable = re.search(r'\((.*?)\)', query).group(1)
-    return variable
+    @staticmethod
+    def isNegative(query):
+        return query[0] == '~'
 
+    @staticmethod
+    def isVariable(var):
+        return var[0].islower()
 
-def isVariable(var):
-    return var[0].islower()
+    @staticmethod
+    def getPredicateConstant(term):
+        split_query = term.split('(')
+        return split_query[0], split_query[1][:-1]
 
+    @staticmethod
+    def collapseORs(sentence):
+        if " |  | " in sentence:
+            newSentence = sentence.replace(" |  | ", " | ")
+        elif sentence[:3] == " | ":
+            newSentence = sentence[3:]
+        elif sentence[-3:] == " | ":
+            newSentence = sentence[:-3]
+        else:
+            newSentence = sentence
 
-# Checks if a variable exists
-def checkSentence(sentence):
-    if " | " in sentence:
-        return False
+        return newSentence
 
-    constants = sentence.split('(')[1][:-1]
-    constantsList = constants.split(",")
+    @staticmethod
+    def replaceVariableWithConstant(word, to_replace, with_replace):
+        temp = to_replace.replace("(" + word + ")", "(" + with_replace + ")")
+        temp = temp.replace("(" + word + ",", "(" + with_replace + ",")
+        temp = temp.replace("," + word + ")", "," + with_replace + ")")
+        return temp.replace("," + word + ",", "," + with_replace + ",")
 
-    for val in constantsList:
-        if not isVariable(val):
+    # Checks if a variable exists
+    def checkSentence(self, sentence):
+        if " | " in sentence:
             return False
-    return True
 
+        constants = sentence.split('(')[1][:-1]
+        constantsList = constants.split(",")
 
-def isNegative(query):
-    return query[0] == '~'
+        for val in constantsList:
+            if self.isVariable(val):
+                return False
+        return True
 
+    def getRemoveQueries(self, query, query_temp, sentence):
+        if not self.isNegative(query):
+            return sentence[1:], "~" + query_temp
+        else:
+            return "~" + sentence, query_temp[1:]
 
-def getRemoveQueries(query, query_temp, sentence):
-    if not isNegative(query):
-        return sentence[1:], "~" + query_temp
-    else:
-        return "~" + sentence, query_temp[1:]
+    def unification(self, query, left_over):
 
+        # Stack Overflow Checker
+        if len(inspect.stack(0)) > 400:
+            return False
 
-def unification(query, left_over, positiveKB, negativeKB, can_simplyfy):
-    predicate = query.split('(')[0]
+        predicate = query.split('(')[0]
 
-    value = None
-
-    if not isNegative(query):
         try:
-            value = negativeKB[predicate]
+            if self.isNegative(query):
+                value = self.positiveKB[predicate[1:]]
+            else:
+                value = self.negatedKB[predicate]
         except KeyError:
             return False
-    else:
-        try:
-            value = positiveKB[predicate[1:]]
-        except KeyError:
-            return False
 
-    for sentence in value:
-        try:
-            left_over_temp = left_over
-            query_temp = query
+        for sentence in value:
+            try:
+                remainderQuery = left_over
+                queryCopy = query
 
-            rQuery1, rQuery2 = getRemoveQueries(query, query_temp, sentence)
-
-            if sentence in can_simplyfy:
-                ret1, l1 = remove(left_over_temp, rQuery1)
-                ret2 = 1
-                l2 = ""
-            else:
-                ret1, l1 = remove(left_over_temp, query_temp)
-                ret2, l2 = remove(sentence, rQuery2)
-            if ret1 == 0 or ret2 == 0:
-                continue
-            else:
-                if l1 == '' and l2 != '':
-                    left_over_temp = l2
-                elif l2 == '' and l1 != '':
-                    left_over_temp = l1
-                elif l1 == '' and l2 == '':
-                    left_over_temp = ''
+                rQuery1, rQuery2 = self.getRemoveQueries(query, queryCopy, sentence)
+                if sentence in self.singleTermSentences:
+                    flag1, l1 = self.removeTerm(remainderQuery, rQuery1)
+                    flag2 = True
+                    l2 = ""
                 else:
-                    left_over_temp = l2 + " | " + l1
-
-                if left_over_temp == '':
-                    return True
+                    flag1, l1 = self.removeTerm(remainderQuery, queryCopy)
+                    flag2, l2 = self.removeTerm(sentence, rQuery2)
+                if not flag1 or not flag2:
+                    continue
                 else:
-                    if "|" in left_over_temp:
-                        data = left_over_temp.split("|")
+                    if not l1 and not l2:
+                        remainderQuery = ''
+                    elif not l2 and l1:
+                        remainderQuery = l1
+                    elif not l1 and l2:
+                        remainderQuery = l2
+                    else:
+                        remainderQuery = l2 + " | " + l1
+
+                    if not remainderQuery:
+                        return True
+                    else:
+                        data = remainderQuery.split(" | ")
                         for i in data:
-                            i = i.replace(" ", "")
-                            if unification(i, left_over_temp, positiveKB, negativeKB, can_simplyfy):
+                            if self.unification(i, remainderQuery):
                                 return True
                             else:
                                 break
-                    else:
-                        if unification(left_over_temp, left_over_temp, positiveKB, negativeKB, can_simplyfy):
-                            return True
-                        else:
-                            continue
-        except RuntimeError as re:
-            if re.args[0] == 'maximum recursion depth exceeded':
-                return False
+            except RuntimeError as re:
+                print("Depth Limit")
+                if re.args[0] == 'maximum recursion depth exceeded':
+                    return False
 
-    return False
+        return False
 
+    def removeTerm(self, k, query):
+        substitutionPass, updatedQuery, updatedSentence = self.querySubstitution(k, query)
 
-def collapseORs(sentence):
-    if " |  | " in sentence:
-        news2 = sentence.replace(" |  | ", " | ")
-        return news2
-    elif sentence[:3] == " | ":
-        news2 = sentence[3:]
-        return news2
-    elif sentence[-3:] == " | ":
-        news2 = sentence[:-3]
-        return news2
-    else:
-        return sentence
+        if substitutionPass:
+            if updatedQuery in updatedSentence:
+                newSentence = updatedSentence.replace(updatedQuery, "")
+            else:
+                sentencePrefix = updatedSentence.find(query.split("(")[0])
+                sentenceSuffix = updatedSentence.find(')', sentencePrefix)
+                deletionString = updatedSentence[sentencePrefix:sentenceSuffix + 1]
+                newSentence = updatedSentence.replace(deletionString, "")
 
-
-def remove(k, query):
-    substitutionPass, updatedQuery, updatedSentence = querySubstitution(k, query)
-
-    if substitutionPass:
-        if updatedQuery in updatedSentence:
-            news1 = updatedSentence.replace(updatedQuery, "")
+            # Collapse OR's
+            return True, self.collapseORs(newSentence)
         else:
-            sentencePrefix = updatedSentence.find(query.partition("(")[0])
-            sentenceSuffix = updatedSentence.find(')', sentencePrefix)
-            deletionString = updatedSentence[sentencePrefix:sentenceSuffix + 1]
-            news1 = updatedSentence.replace(deletionString, "")
+            return False, updatedSentence
 
-        # Collapse OR's
-        return 1, collapseORs(news1)
-    else:
-        return 0, updatedSentence
+    def querySubstitution(self, sentence, query):
 
+        queryPredicate, queryArgs = self.getPredicateConstant(query)
+        queryArgsList = queryArgs.split(",")
 
-def getPredicateConstant(term):
-    split_query = term.split('(')
-    return split_query[0], split_query[1][:-1]
+        sentenceTerms = sentence.split(" | ")
+        flag = False
+        for term in sentenceTerms:
 
+            count = 0
 
-def querySubstitution(sentence, query):
-    queryPredicate, queryArgs = getPredicateConstant(query)
-    queryArgsList = queryArgs.split(",")
+            sentencePredicate, sentenceArgs = self.getPredicateConstant(term)
 
-    sentenceTerms = sentence.split(" | ")
-    flag = False
-    for term in sentenceTerms:
+            if sentencePredicate == queryPredicate:
+                sentenceArgsList = sentenceArgs.split(",")
 
-        count = 0
-        sentencePredicate, sentenceArgs = getPredicateConstant(term)
-
-        if sentencePredicate == queryPredicate:
-            sentenceArgsList = sentenceArgs.split(",")
-
-            for j in sentenceArgsList:
-                if not isVariable(j) and isVariable(queryArgsList[count]):
-                    query = replaceVariableWithConstant(queryArgsList[count], query, j)
-                    flag = True
-                    count += 1
-                elif isVariable(j) and not isVariable(queryArgsList[count]):
-                    sentence = replaceVariableWithConstant(j, sentence, queryArgsList[count])
-                    flag = True
-                    count += 1
-                elif not isVariable(j) and not isVariable(queryArgsList[count]):
-                    flag = (j == queryArgsList[count])
-                    if flag:
+                for j in sentenceArgsList:
+                    if not self.isVariable(j) and self.isVariable(queryArgsList[count]):
+                        query = self.replaceVariableWithConstant(queryArgsList[count], query, j)
+                        flag = True
                         count += 1
-                    else:
-                        break
-                elif isVariable(j) and isVariable(queryArgsList[count]):
-                    if not (j == queryArgsList[count]):
-                        sentence = replaceVariableWithConstant(j, sentence, queryArgsList[count])
+                    elif self.isVariable(j) and not self.isVariable(queryArgsList[count]):
+                        sentence = self.replaceVariableWithConstant(j, sentence, queryArgsList[count])
                         flag = True
-                    else:
-                        flag = True
-                    count += 1
-            if flag:
-                break
+                        count += 1
+                    elif not self.isVariable(j) and not self.isVariable(queryArgsList[count]):
+                        flag = (j == queryArgsList[count])
+                        if flag:
+                            count += 1
+                        else:
+                            break
+                    elif self.isVariable(j) and self.isVariable(queryArgsList[count]):
+                        if not (j == queryArgsList[count]):
+                            sentence = self.replaceVariableWithConstant(j, sentence, queryArgsList[count])
+                            flag = True
+                        else:
+                            flag = True
+                        count += 1
+                if flag:
+                    break
 
-    return flag, query, sentence
-
-
-def replaceVariableWithConstant(word, to_replace, with_replace):
-    big_regex = re.compile(r'\b%s\b' % r'\b|\b'.join(map(re.escape, word)))
-    a = big_regex.sub(with_replace, to_replace)
-    return (a)
-
-
-def main():
-    r = ReaderWriter("input.txt", "output.txt")
-    query_list, sentences = r.read()
-    negativeKB, positiveKB = r.splitKB()
-
-    can_simplyfy = []
-    for a in sentences:
-        if checkSentence(a):
-            can_simplyfy.append(a)
-
-    for query in query_list:
-        new_query = None
-        if isNegative(query):
-            new_query = query[1:]
-        else:
-            new_query = "~" + query
-        r.write(unification(new_query, new_query, positiveKB, negativeKB, can_simplyfy))
-
-    r.epilogue()
+        return flag, query, sentence
 
 
 if __name__ == '__main__':
-    main()
+    r = ReaderWriter("input3.txt", "output.txt")
+    r.read()
+    solver = Solver(r, sentences=r.sentences, queries=r.queries)
+    solver.solve()
+    r.epilogue()
