@@ -308,7 +308,7 @@ class Solver:
 
 
 if __name__ == '__main__':
-    r = ReaderWriter("input3.txt", "output.txt")
+    r = ReaderWriter("temp.txt", "output.txt")
     r.read()
     solver = Solver(r, sentences=r.sentences, queries=r.queries)
     solver.solve()
