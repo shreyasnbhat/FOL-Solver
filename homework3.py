@@ -79,11 +79,11 @@ class ReaderWriter:
         lines = self.readFileObject.readlines()
         for index, line in enumerate(lines):
             if index == 0:
-                nq = int(lines[index].strip())
-                for i in range(1, nq + 1):
+                numQueries = int(lines[index].strip())
+                for i in range(1, numQueries + 1):
                     self.queries.append(lines[i].strip())
-                ns = int(lines[nq + 1].strip())
-                for i in range(nq + 2, nq + ns + 2):
+                numSentences = int(lines[numQueries + 1].strip())
+                for i in range(numQueries + 2, numQueries + numSentences + 2):
                     self.kb.append(lines[i].strip())
                 break
 
@@ -113,12 +113,12 @@ class Solver:
         self.negatedKB = defaultdict(list)
 
         for i in sentences:
-            if self.checkSentence(i):
+            if self.ifVariableExists(i):
                 self.singleTermSentences.append(i)
 
     def splitKB(self):
         for item in self.sentences:
-            data = item.split('|')
+            data = item.split(' | ')
             for i in [i.replace(' ', '') for i in data]:
                 if self.isNegative(i):
                     b = i[1:].split("(")[0]
@@ -169,7 +169,7 @@ class Solver:
         return temp.replace("," + word + ",", "," + replaceVar + ",")
 
     # Checks if a variable exists
-    def checkSentence(self, sentence):
+    def ifVariableExists(self, sentence):
         if " | " in sentence:
             return False
 
@@ -204,43 +204,38 @@ class Solver:
             return False
 
         for sentence in value:
-            try:
-                remainderQueryCopy = remainderQuery
-                queryCopy = query
+            remainderQueryCopy = remainderQuery
+            queryCopy = query
 
-                rQuery1, rQuery2 = self.getRemoveQueries(query, query, sentence)
-                if sentence in self.singleTermSentences:
-                    flag1, resolvedQuery1 = self.removeTerm(remainderQueryCopy, rQuery1)
-                    flag2 = True
-                    resolvedQuery2 = ""
+            rQuery1, rQuery2 = self.getRemoveQueries(query, query, sentence)
+            if sentence in self.singleTermSentences:
+                flag1, resolvedQuery1 = self.removeTerm(remainderQueryCopy, rQuery1)
+                flag2 = True
+                resolvedQuery2 = ""
+            else:
+                flag1, resolvedQuery1 = self.removeTerm(remainderQueryCopy, queryCopy)
+                flag2, resolvedQuery2 = self.removeTerm(sentence, rQuery2)
+            if not flag1 or not flag2:
+                continue
+            else:
+                if not resolvedQuery1 and not resolvedQuery2:
+                    remainderQueryCopy = ''
+                elif not resolvedQuery2 and resolvedQuery1:
+                    remainderQueryCopy = resolvedQuery1
+                elif not resolvedQuery1 and resolvedQuery2:
+                    remainderQueryCopy = resolvedQuery2
                 else:
-                    flag1, resolvedQuery1 = self.removeTerm(remainderQueryCopy, queryCopy)
-                    flag2, resolvedQuery2 = self.removeTerm(sentence, rQuery2)
-                if not flag1 or not flag2:
-                    continue
-                else:
-                    if not resolvedQuery1 and not resolvedQuery2:
-                        remainderQueryCopy = ''
-                    elif not resolvedQuery2 and resolvedQuery1:
-                        remainderQueryCopy = resolvedQuery1
-                    elif not resolvedQuery1 and resolvedQuery2:
-                        remainderQueryCopy = resolvedQuery2
-                    else:
-                        remainderQueryCopy = resolvedQuery2 + " | " + resolvedQuery1
+                    remainderQueryCopy = resolvedQuery2 + " | " + resolvedQuery1
 
-                    if not remainderQueryCopy:
-                        return True
-                    else:
-                        data = remainderQueryCopy.split(" | ")
-                        for i in data:
-                            if self.unification(i, remainderQueryCopy):
-                                return True
-                            else:
-                                break
-            except RuntimeError as re:
-                print("Depth Limit")
-                if re.args[0] == 'maximum recursion depth exceeded':
-                    return False
+                if not remainderQueryCopy:
+                    return True
+                else:
+                    data = remainderQueryCopy.split(" | ")
+                    for i in data:
+                        if self.unification(i, remainderQueryCopy):
+                            return True
+                        else:
+                            break
 
         return False
 
@@ -248,10 +243,9 @@ class Solver:
         substitutionPass, updatedQuery, updatedSentence = self.querySubstitution(k, query)
 
         if substitutionPass:
-            newSentence = updatedSentence.replace(updatedQuery, "")
-            return True, self.collapseORs(newSentence)
-        else:
-            return False, updatedSentence
+            updatedSentence = self.collapseORs(updatedSentence.replace(updatedQuery, ""))
+
+        return substitutionPass, updatedSentence
 
     def querySubstitution(self, sentence, query):
 
@@ -263,7 +257,6 @@ class Solver:
         for term in sentenceTerms:
 
             count = 0
-
             sentencePredicate, sentenceArgs = self.getPredicateConstant(term)
 
             if sentencePredicate == queryPredicate:
@@ -273,24 +266,23 @@ class Solver:
                     if not self.isVariable(j) and self.isVariable(queryArgsList[count]):
                         query = self.replaceVariableWithConstant(queryArgsList[count], query, j)
                         flag = True
-                        count += 1
+                        count += int(flag)
                     elif self.isVariable(j) and not self.isVariable(queryArgsList[count]):
                         sentence = self.replaceVariableWithConstant(j, sentence, queryArgsList[count])
                         flag = True
-                        count += 1
+                        count += int(flag)
+                    elif self.isVariable(j) and self.isVariable(queryArgsList[count]):
+                        flag = True
+                        if not (j == queryArgsList[count]):
+                            sentence = self.replaceVariableWithConstant(j, sentence, queryArgsList[count])
+                        count += int(flag)
                     elif not self.isVariable(j) and not self.isVariable(queryArgsList[count]):
                         flag = (j == queryArgsList[count])
                         if flag:
-                            count += 1
+                            count += int(flag)
                         else:
                             break
-                    elif self.isVariable(j) and self.isVariable(queryArgsList[count]):
-                        if not (j == queryArgsList[count]):
-                            sentence = self.replaceVariableWithConstant(j, sentence, queryArgsList[count])
-                            flag = True
-                        else:
-                            flag = True
-                        count += 1
+
                 if flag:
                     break
 
