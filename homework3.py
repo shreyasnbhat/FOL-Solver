@@ -16,9 +16,9 @@ class KnowledgeBase:
         self.rules = rules
         self.ruleCount = 0
         for i in range(len(rules)):
-            self.rules[i] = self.convert_to_CNF(self.rules[i])
+            self.rules[i] = self.convertCNF(self.rules[i])
 
-    def convert_to_CNF(self, rule):
+    def convertCNF(self, rule):
         tokens = rule.split(' ')
 
         if len(tokens) > 2 and "=>" in tokens:
@@ -147,8 +147,8 @@ class Solver:
 
     @staticmethod
     def getPredicateConstant(term):
-        split_query = term.split('(')
-        return split_query[0], split_query[1][:-1]
+        splitQuery = term.split('(')
+        return splitQuery[0], splitQuery[1][:-1]
 
     @staticmethod
     def collapseORs(sentence):
@@ -162,11 +162,11 @@ class Solver:
         return sentence
 
     @staticmethod
-    def replaceVariableWithConstant(word, to_replace, with_replace):
-        temp = to_replace.replace("(" + word + ")", "(" + with_replace + ")")
-        temp = temp.replace("(" + word + ",", "(" + with_replace + ",")
-        temp = temp.replace("," + word + ")", "," + with_replace + ")")
-        return temp.replace("," + word + ",", "," + with_replace + ",")
+    def replaceVariableWithConstant(word, replaceString, replaceVar):
+        temp = replaceString.replace("(" + word + ")", "(" + replaceVar + ")")
+        temp = temp.replace("(" + word + ",", "(" + replaceVar + ",")
+        temp = temp.replace("," + word + ")", "," + replaceVar + ")")
+        return temp.replace("," + word + ",", "," + replaceVar + ",")
 
     # Checks if a variable exists
     def checkSentence(self, sentence):
@@ -181,13 +181,13 @@ class Solver:
                 return False
         return True
 
-    def getRemoveQueries(self, query, query_temp, sentence):
+    def getRemoveQueries(self, query, tempQuery, sentence):
         if not self.isNegative(query):
-            return sentence[1:], "~" + query_temp
+            return sentence[1:], "~" + tempQuery
         else:
-            return "~" + sentence, query_temp[1:]
+            return "~" + sentence, tempQuery[1:]
 
-    def unification(self, query, left_over):
+    def unification(self, query, remainderQuery):
 
         # Stack Overflow Checker
         if len(inspect.stack(0)) > 600:
@@ -205,35 +205,35 @@ class Solver:
 
         for sentence in value:
             try:
-                remainderQuery = left_over
+                remainderQueryCopy = remainderQuery
                 queryCopy = query
 
                 rQuery1, rQuery2 = self.getRemoveQueries(query, query, sentence)
                 if sentence in self.singleTermSentences:
-                    flag1, resolvedQuery1 = self.removeTerm(remainderQuery, rQuery1)
+                    flag1, resolvedQuery1 = self.removeTerm(remainderQueryCopy, rQuery1)
                     flag2 = True
                     resolvedQuery2 = ""
                 else:
-                    flag1, resolvedQuery1 = self.removeTerm(remainderQuery, queryCopy)
+                    flag1, resolvedQuery1 = self.removeTerm(remainderQueryCopy, queryCopy)
                     flag2, resolvedQuery2 = self.removeTerm(sentence, rQuery2)
                 if not flag1 or not flag2:
                     continue
                 else:
                     if not resolvedQuery1 and not resolvedQuery2:
-                        remainderQuery = ''
+                        remainderQueryCopy = ''
                     elif not resolvedQuery2 and resolvedQuery1:
-                        remainderQuery = resolvedQuery1
+                        remainderQueryCopy = resolvedQuery1
                     elif not resolvedQuery1 and resolvedQuery2:
-                        remainderQuery = resolvedQuery2
+                        remainderQueryCopy = resolvedQuery2
                     else:
-                        remainderQuery = resolvedQuery2 + " | " + resolvedQuery1
+                        remainderQueryCopy = resolvedQuery2 + " | " + resolvedQuery1
 
-                    if not remainderQuery:
+                    if not remainderQueryCopy:
                         return True
                     else:
-                        data = remainderQuery.split(" | ")
+                        data = remainderQueryCopy.split(" | ")
                         for i in data:
-                            if self.unification(i, remainderQuery):
+                            if self.unification(i, remainderQueryCopy):
                                 return True
                             else:
                                 break
@@ -249,7 +249,6 @@ class Solver:
 
         if substitutionPass:
             newSentence = updatedSentence.replace(updatedQuery, "")
-            # Collapse OR's
             return True, self.collapseORs(newSentence)
         else:
             return False, updatedSentence
@@ -299,7 +298,7 @@ class Solver:
 
 
 if __name__ == '__main__':
-    r = ReaderWriter("t.txt", "output.txt")
+    r = ReaderWriter("input3.txt", "output.txt")
     r.read()
     solver = Solver(r, sentences=r.sentences, queries=r.queries)
     solver.solve()
