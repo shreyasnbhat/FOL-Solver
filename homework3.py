@@ -22,14 +22,14 @@ class KnowledgeBase:
         tokens = rule.split(' ')
 
         if len(tokens) > 2 and "=>" in tokens:
-            return self.convert_implication_to_cnf(tokens)
+            return self.convertImplicationToCNF(tokens)
         else:
             return rule
 
     def isNegative(self, query):
         return query[0] == '~'
 
-    def convert_implication_to_cnf(self, tokens):
+    def convertImplicationToCNF(self, tokens):
         cnfRule = []
         implicationReached = False
         for i in tokens:
@@ -94,9 +94,9 @@ class ReaderWriter:
 
     def write(self, flag):
         if flag:
-            self.writeFileObject.write("TRUE" + "\n")
+            self.writeFileObject.write("TRUE\n")
         else:
-            self.writeFileObject.write("FALSE" + "\n")
+            self.writeFileObject.write("FALSE\n")
 
     def isNegative(self, query):
         return query[0] == '~'
@@ -153,15 +153,13 @@ class Solver:
     @staticmethod
     def collapseORs(sentence):
         if " |  | " in sentence:
-            newSentence = sentence.replace(" |  | ", " | ")
-        elif sentence[:3] == " | ":
-            newSentence = sentence[3:]
-        elif sentence[-3:] == " | ":
-            newSentence = sentence[:-3]
-        else:
-            newSentence = sentence
+            sentence = sentence.replace(" |  | ", " | ")
+        if sentence[:3] == " | ":
+            sentence = sentence[3:]
+        if sentence[-3:] == " | ":
+            sentence = sentence[:-3]
 
-        return newSentence
+        return sentence
 
     @staticmethod
     def replaceVariableWithConstant(word, to_replace, with_replace):
@@ -192,7 +190,7 @@ class Solver:
     def unification(self, query, left_over):
 
         # Stack Overflow Checker
-        if len(inspect.stack(0)) > 400:
+        if len(inspect.stack(0)) > 600:
             return False
 
         predicate = query.split('(')[0]
@@ -210,25 +208,25 @@ class Solver:
                 remainderQuery = left_over
                 queryCopy = query
 
-                rQuery1, rQuery2 = self.getRemoveQueries(query, queryCopy, sentence)
+                rQuery1, rQuery2 = self.getRemoveQueries(query, query, sentence)
                 if sentence in self.singleTermSentences:
-                    flag1, l1 = self.removeTerm(remainderQuery, rQuery1)
+                    flag1, resolvedQuery1 = self.removeTerm(remainderQuery, rQuery1)
                     flag2 = True
-                    l2 = ""
+                    resolvedQuery2 = ""
                 else:
-                    flag1, l1 = self.removeTerm(remainderQuery, queryCopy)
-                    flag2, l2 = self.removeTerm(sentence, rQuery2)
+                    flag1, resolvedQuery1 = self.removeTerm(remainderQuery, queryCopy)
+                    flag2, resolvedQuery2 = self.removeTerm(sentence, rQuery2)
                 if not flag1 or not flag2:
                     continue
                 else:
-                    if not l1 and not l2:
+                    if not resolvedQuery1 and not resolvedQuery2:
                         remainderQuery = ''
-                    elif not l2 and l1:
-                        remainderQuery = l1
-                    elif not l1 and l2:
-                        remainderQuery = l2
+                    elif not resolvedQuery2 and resolvedQuery1:
+                        remainderQuery = resolvedQuery1
+                    elif not resolvedQuery1 and resolvedQuery2:
+                        remainderQuery = resolvedQuery2
                     else:
-                        remainderQuery = l2 + " | " + l1
+                        remainderQuery = resolvedQuery2 + " | " + resolvedQuery1
 
                     if not remainderQuery:
                         return True
@@ -250,14 +248,7 @@ class Solver:
         substitutionPass, updatedQuery, updatedSentence = self.querySubstitution(k, query)
 
         if substitutionPass:
-            if updatedQuery in updatedSentence:
-                newSentence = updatedSentence.replace(updatedQuery, "")
-            else:
-                sentencePrefix = updatedSentence.find(query.split("(")[0])
-                sentenceSuffix = updatedSentence.find(')', sentencePrefix)
-                deletionString = updatedSentence[sentencePrefix:sentenceSuffix + 1]
-                newSentence = updatedSentence.replace(deletionString, "")
-
+            newSentence = updatedSentence.replace(updatedQuery, "")
             # Collapse OR's
             return True, self.collapseORs(newSentence)
         else:
@@ -308,7 +299,7 @@ class Solver:
 
 
 if __name__ == '__main__':
-    r = ReaderWriter("temp.txt", "output.txt")
+    r = ReaderWriter("t.txt", "output.txt")
     r.read()
     solver = Solver(r, sentences=r.sentences, queries=r.queries)
     solver.solve()
