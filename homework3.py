@@ -209,12 +209,12 @@ class Solver:
 
             rQuery1, rQuery2 = self.getRemoveQueries(query, query, sentence)
             if sentence in self.singleTermSentences:
-                flag1, resolvedQuery1 = self.removeTerm(remainderQueryCopy, rQuery1)
+                flag1, resolvedQuery1 = self.resolutionStep(remainderQueryCopy, rQuery1)
                 flag2 = True
                 resolvedQuery2 = ""
             else:
-                flag1, resolvedQuery1 = self.removeTerm(remainderQueryCopy, queryCopy)
-                flag2, resolvedQuery2 = self.removeTerm(sentence, rQuery2)
+                flag1, resolvedQuery1 = self.resolutionStep(remainderQueryCopy, queryCopy)
+                flag2, resolvedQuery2 = self.resolutionStep(sentence, rQuery2)
             if not flag1 or not flag2:
                 continue
             else:
@@ -239,23 +239,14 @@ class Solver:
 
         return False
 
-    def removeTerm(self, k, query):
-        substitutionPass, updatedQuery, updatedSentence = self.querySubstitution(k, query)
-
-        if substitutionPass:
-            updatedSentence = self.collapseORs(updatedSentence.replace(updatedQuery, ""))
-
-        return substitutionPass, updatedSentence
-
-    def querySubstitution(self, sentence, query):
-
+    def resolutionStep(self, sentence, query):
         queryPredicate, queryArgs = self.getPredicateConstant(query)
         queryArgsList = queryArgs.split(",")
 
         sentenceTerms = sentence.split(" | ")
         flag = False
-        for term in sentenceTerms:
 
+        for term in sentenceTerms:
             count = 0
             sentencePredicate, sentenceArgs = self.getPredicateConstant(term)
 
@@ -284,13 +275,14 @@ class Solver:
                             break
 
                 if flag:
-                    break
+                    sentence = self.collapseORs(sentence.replace(query, ""))
+                    return flag, sentence
 
-        return flag, query, sentence
+        return flag, sentence
 
 
 if __name__ == '__main__':
-    r = ReaderWriter("input3.txt", "output.txt")
+    r = ReaderWriter("input.txt", "output.txt")
     r.read()
     solver = Solver(r, sentences=r.sentences, queries=r.queries)
     solver.solve()
