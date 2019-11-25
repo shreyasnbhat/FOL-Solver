@@ -88,8 +88,8 @@ class ReaderWriter:
                 break
 
         # Convert to CNF
-        self.cnfConvertor = KnowledgeBase(self.kb)
-        self.sentences = self.cnfConvertor.rules
+        self.cnfConverter = KnowledgeBase(self.kb)
+        self.sentences = self.cnfConverter.rules
         return self.queries, self.sentences
 
     def write(self, flag):
@@ -129,13 +129,15 @@ class Solver:
 
     def solve(self):
         self.splitKB()
-
+        cnt = 0
         for query in self.queries:
+            cnt += 1
             if self.isNegative(query):
                 newQuery = query[1:]
             else:
                 newQuery = "~" + query
             self.readerWriter.write(self.unification(newQuery, newQuery))
+            print("Line Write " , cnt)
 
     @staticmethod
     def isNegative(query):
@@ -232,10 +234,10 @@ class Solver:
                 else:
                     data = remainderQueryCopy.split(" | ")
                     for i in data:
-                        if self.unification(i, remainderQueryCopy):
-                            return True
-                        else:
+                        if not self.unification(i, remainderQueryCopy):
                             break
+                        else:
+                            return True
 
         return False
 
@@ -253,26 +255,23 @@ class Solver:
             if sentencePredicate == queryPredicate:
                 sentenceArgsList = sentenceArgs.split(",")
 
-                for j in sentenceArgsList:
-                    if not self.isVariable(j) and self.isVariable(queryArgsList[count]):
-                        query = self.replaceVariableWithConstant(queryArgsList[count], query, j)
-                        flag = True
-                        count += int(flag)
-                    elif self.isVariable(j) and not self.isVariable(queryArgsList[count]):
-                        sentence = self.replaceVariableWithConstant(j, sentence, queryArgsList[count])
-                        flag = True
-                        count += int(flag)
-                    elif self.isVariable(j) and self.isVariable(queryArgsList[count]):
-                        flag = True
-                        if not (j == queryArgsList[count]):
-                            sentence = self.replaceVariableWithConstant(j, sentence, queryArgsList[count])
-                        count += int(flag)
-                    elif not self.isVariable(j) and not self.isVariable(queryArgsList[count]):
-                        flag = (j == queryArgsList[count])
+                for arg in sentenceArgsList:
+                    if not self.isVariable(arg) and not self.isVariable(queryArgsList[count]):
+                        flag = (arg == queryArgsList[count])
                         if flag:
                             count += int(flag)
                         else:
                             break
+                    else:
+                        if not self.isVariable(arg) and self.isVariable(queryArgsList[count]):
+                            query = self.replaceVariableWithConstant(queryArgsList[count], query, arg)
+                        elif self.isVariable(arg) and not self.isVariable(queryArgsList[count]):
+                            sentence = self.replaceVariableWithConstant(arg, sentence, queryArgsList[count])
+                        elif self.isVariable(arg) and self.isVariable(queryArgsList[count]):
+                            if not (arg == queryArgsList[count]):
+                                sentence = self.replaceVariableWithConstant(arg, sentence, queryArgsList[count])
+                        flag = True
+                        count += int(flag)
 
                 if flag:
                     sentence = self.collapseORs(sentence.replace(query, ""))
@@ -282,7 +281,7 @@ class Solver:
 
 
 if __name__ == '__main__':
-    r = ReaderWriter("input.txt", "output.txt")
+    r = ReaderWriter("input3.txt", "output.txt")
     r.read()
     solver = Solver(r, sentences=r.sentences, queries=r.queries)
     solver.solve()
